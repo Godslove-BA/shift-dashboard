@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Day-shift LaunchAgent TEMPLATE.
+
+  Install:
+    1. Replace __REPO__ with your primary checkout path
+       (e.g. /Users/you/your-project
+    2. Replace __HOME__ with your home dir (e.g. /Users/yourname)
+    3. Copy to ~/Library/LaunchAgents/com.example.day-shift.plist
+    4. launchctl load -w ~/Library/LaunchAgents/com.example.day-shift.plist
+
+  Behaviour:
+    - Fires every 1800s (30 min) WHILE THE MAC IS AWAKE. macOS does not run
+      LaunchAgents while asleep and (RunAtLoad=false) won't stampede missed runs
+      on wake — so it's a true "while I'm at my desk" day shift, not 24/7.
+    - dispatch.mjs self-locks, so an over-running ticket won't double-dispatch.
+    - Starts in MODE=auto. To trial safely, set MODE=dry-run below first.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.example.day-shift</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>__REPO__/tools/day-shift/dispatch.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>MODE</key>
+    <string>auto</string>
+    <key>MAX_TICKETS</key>
+    <string>3</string>
+    <!-- CONCURRENCY: parallel workers per run. Default 1 = legacy serial.
+         3 is the tested sweet spot on a 16GB M-series Mac. Clamped [1, 6]. -->
+    <key>CONCURRENCY</key>
+    <string>3</string>
+    <key>DAY_SHIFT_PRIMARY_REPO</key>
+    <string>__REPO__</string>
+    <key>DAY_SHIFT_REPO</key>
+    <string>your-org/your-repo</string>
+    <key>DAY_SHIFT_BASE_BRANCH</key>
+    <string>Staging</string>
+    <key>DAY_SHIFT_MAX_MINUTES</key>
+    <string>25</string>
+    <key>CLAUDE_BIN</key>
+    <string>/opt/homebrew/bin/claude</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/day-shift-worktrees/day-shift.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/day-shift-worktrees/day-shift.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>5</integer>
+</dict>
+</plist>

@@ -1,0 +1,24 @@
+name: Feature request
+description: A concrete change to what the dashboard shows or how the shifts run.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem it solves
+      description: What friction does the current dashboard put in front of you? Start here, before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like to see
+      description: One paragraph. Sketches, wireframes, or a link to a reference are welcome — attach them here.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Have you tried a workaround? What's wrong with it?

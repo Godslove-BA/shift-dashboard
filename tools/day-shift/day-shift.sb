@@ -1,0 +1,137 @@
+;; day-shift.sb — macOS sandbox-exec profile for the day-shift `claude -p`
+;; subprocess. OPT-IN via DAY_SHIFT_SANDBOX=1 (see tools/day-shift/README.md).
+;;
+;; Design: (deny default) with a narrow allowlist — safer than (allow default)
+;; + narrow denies, because any path we forgot to think about is a deny, not a
+;; silent grant. We intentionally allow full outbound network and process-spawn:
+;; claude -p needs api.anthropic.com + github.com + git/bash. The value here is
+;; FILESYSTEM confinement — an escaped Claude Code process cannot rummage
+;; through the rest of the Mac (Documents, Desktop, other repos, ~/Library
+;; app-data, etc.).
+;;
+;; Runtime parameters are injected by worker.mjs via `sandbox-exec -D KEY=val`.
+;; EVERY (param "…") referenced below MUST be passed at spawn time, or
+;; sandbox-exec errors "unbound variable" before running the command.
+;;
+;;   WORKTREE          absolute path of the ticket's git worktree
+;;   SCRATCH           absolute path of the ticket's scratch dir (outside repo)
+;;   WORKTREE_ROOT     parent dir of all worktrees (usually ~/day-shift-worktrees)
+;;   PRIMARY_REPO      the primary checkout (symlink target of node_modules + .env)
+;;   HOME_DIR          $HOME
+;;   CLAUDE_HOME       $HOME/.claude
+;;   NPM_CACHE         $HOME/.npm
+;;   USER_CACHE        $HOME/.cache
+;;   GH_CONFIG         $HOME/.config    (GitHub CLI + friends live here)
+;;   GH_STATE          $HOME/.local     (GitHub CLI + friends live here)
+;;   HOME_SSH          $HOME/.ssh
+;;   HOME_GITCONFIG    $HOME/.gitconfig
+;;   HOME_GITIGNORE    $HOME/.gitignore_global
+;;   HOME_NPMRC        $HOME/.npmrc
+;;
+;; DEBUG: uncomment `(debug deny)` to log every denial to Console.app (search
+;; for "sandbox"). Do not ship with it uncommented — it's noisy.
+
+(version 1)
+(deny default)
+;; (debug deny)
+
+;; ── Process control ────────────────────────────────────────────────────────
+;; claude -p spawns bash for git; bash spawns git, node, tsc, etc. Allow the
+;; whole family. Confinement here is filesystem-shaped, not exec-shaped.
+(allow process-fork)
+(allow process-exec)
+(allow process-info*)
+(allow signal (target self))
+(allow signal (target children))
+
+;; ── System info + IPC ──────────────────────────────────────────────────────
+(allow sysctl-read)
+(allow mach-lookup)          ; broad; Node + Foundation need many mach services
+(allow iokit-open)           ; graphics/IOKit lookups from CoreFoundation
+(allow ipc-posix-shm*)       ; needed for CFPreferences + notification_center
+(allow ipc-posix-sem*)
+(allow user-preference-read) ; CFPreferences reads (locale, region, etc.)
+
+;; ── System dylibs, binaries, config (READ-only) ────────────────────────────
+;; /etc and /var are symlinks into /private; kernel resolves them but tools
+;; also stat the symlinks themselves — allow both.
+(allow file-read*
+  (subpath "/System")
+  (subpath "/usr")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/Library")
+  (subpath "/opt")
+  (subpath "/private/etc")
+  (subpath "/private/var/db")
+  (subpath "/private/var/select")   ; /bin/sh reads this to pick preferred shell
+  (literal "/")
+  (literal "/etc")
+  (literal "/var")
+  (literal "/tmp")
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/random")
+  (literal "/dev/urandom"))
+
+;; TTYs + /dev/null + dtracehelper — R/W (dtracehelper is opened for write on
+;; every dyld-linked process startup even when nothing is being traced).
+(allow file-read* file-write*
+  (literal "/dev/tty")
+  (literal "/dev/null")
+  (literal "/dev/dtracehelper")
+  (regex #"^/dev/(pty|tty|ptmx)"))
+
+;; System temp — R/W. Node writes temp files here; git uses /var/folders.
+(allow file-read* file-write*
+  (subpath "/tmp")
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders")
+  (subpath "/private/var/tmp")
+  (subpath "/var/folders")
+  (subpath "/var/tmp"))
+
+;; ── Ticket-scoped paths (injected via -D) ──────────────────────────────────
+;; Full R/W on: this ticket's worktree, its scratch dir, the worktree-root
+;; parent (so the process can enumerate its own root), the primary repo
+;; (symlink targets for node_modules + .env resolve here), and the user's
+;; Claude Code / npm / gh state dirs. Anything OUTSIDE these paths is DENIED.
+(allow file-read* file-write*
+  (subpath (param "WORKTREE"))
+  (subpath (param "SCRATCH"))
+  (subpath (param "WORKTREE_ROOT"))
+  (subpath (param "PRIMARY_REPO"))
+  (subpath (param "CLAUDE_HOME"))
+  (subpath (param "NPM_CACHE"))
+  (subpath (param "USER_CACHE"))
+  (subpath (param "GH_CONFIG"))
+  (subpath (param "GH_STATE")))
+
+;; R-only user config: git identity, npm registry, ssh known_hosts. The worker
+;; must not be able to write these. HOME itself is R so the process can stat/
+;; enumerate — allowing (literal HOME_DIR) grants stat of the dir, not its
+;; children.
+(allow file-read*
+  (subpath (param "HOME_SSH"))
+  (literal (param "HOME_GITCONFIG"))
+  (literal (param "HOME_GITIGNORE"))
+  (literal (param "HOME_NPMRC"))
+  (literal (param "HOME_DIR")))
+
+;; ── Network ────────────────────────────────────────────────────────────────
+;; Outbound: fully allowed. claude -p needs api.anthropic.com; git needs
+;; github.com; DNS needs mDNSResponder. No inbound listen surface.
+(allow network-outbound)
+(allow network-outbound (remote unix-socket))     ; mDNSResponder socket
+(allow network-bind (local ip "localhost:*"))     ; local dev-server binds if any
+(allow system-socket)
+
+;; DNS resolver hits /var/run/mDNSResponder (unix socket file). Allow R/W on
+;; the socket path itself, plus the parent so lookups can stat it. Without
+;; this, gethostbyname() fails with "Could not resolve host".
+(allow file-read* file-write*
+  (literal "/private/var/run/mDNSResponder")
+  (literal "/var/run/mDNSResponder"))
+(allow file-read*
+  (literal "/private/var/run")
+  (literal "/var/run"))

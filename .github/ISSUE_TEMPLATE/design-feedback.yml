@@ -1,0 +1,44 @@
+name: Design feedback
+description: Critique of composition, hierarchy, typography, color, contrast, or accessibility. Not a bug — a design opinion.
+title: "[design] "
+labels: ["design-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Design feedback is as valuable as code contributions here. Please be specific — what you see, why it's not working, and if you can, a reference for what would work better.
+
+        Read [DESIGN.md](../../DESIGN.md) first if you haven't. The design principles + token system are the contract; feedback that lands against those (or challenges them with real reasoning) is the most useful kind.
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer?
+      options:
+        - Composition (layout, hierarchy, spacing)
+        - Typography (scale, weight, tracking, line-height)
+        - Color (palette, contrast, accent usage)
+        - State grammar (how a state is signaled visually / via aria)
+        - Accessibility (contrast, focus, keyboard nav, screen reader, tap targets)
+        - Craft (polish, animation, micro-interactions)
+        - Freshness / triage flow (the core information design)
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: What you see
+      description: What is the design doing right now that you're pushing back on? Screenshot welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: why-it-fails
+    attributes:
+      label: Why it's not working
+      description: What's the specific failure mode? What does the reviewer / user experience that they shouldn't?
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference or proposal (optional)
+      description: If you have a reference that gets it right, or a concrete alternative, drop it here.

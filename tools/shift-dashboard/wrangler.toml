@@ -1,0 +1,21 @@
+# shift-dashboard - Cloudflare Worker deploy config.
+#
+# Deploy: cd tools/shift-dashboard && npx wrangler deploy
+# See README.md for one-time setup (secrets, custom domain).
+
+name = "shift-dashboard"
+main = "worker.js"
+compatibility_date = "2026-07-25"
+
+# Public (unroutable-without-key) URL: https://shift-dashboard.<subdomain>.workers.dev
+# You can attach a custom subdomain (e.g. shifts.example.com) via the
+# Cloudflare dashboard: Workers -> shift-dashboard -> Triggers -> Custom Domains.
+
+# Non-secret runtime config. Secrets (GH_TOKEN + DASHBOARD_SECRET) are set via
+# `wrangler secret put NAME` and never live in this file.
+[vars]
+# Comma-separated list. Add another project = one comma + repo + redeploy.
+# (Backward-compat: worker.js still reads REPO as a single-repo fallback.)
+REPOS = "your-org/your-repo,your-org/your-second-repo"
+
+# No observability, no KV, no D1 - this is a stateless read-only page.

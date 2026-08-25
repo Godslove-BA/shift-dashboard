@@ -1,0 +1,23 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+
+# Local test artifacts
+coverage/

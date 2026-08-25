@@ -1,0 +1,26 @@
+name: Bug report
+description: Something broke or renders wrong.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, actual behavior, expected behavior.
+      placeholder: "1. Ran `SYNTHETIC_PRS=1 wrangler dev` ...\n2. Opened /?key=devkey ...\n3. Expected: freshness section headings visible.\n4. Got: ..."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, Wrangler version, browser + OS (if browser-side).
+      placeholder: "node 20.10, wrangler 3.72, Safari 17 on macOS 14.4"
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot (optional)
+      description: If the bug is visual, drop an image here.
