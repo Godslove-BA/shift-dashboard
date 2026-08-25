@@ -1,5 +1,7 @@
 # shift-dashboard
 
+[![CI](https://github.com/Godslove-BA/shift-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/Godslove-BA/shift-dashboard/actions/workflows/test.yml)
+
 A CSP-clean dashboard for triaging pull requests opened by autonomous AI agents overnight.
 
 ![shift-dashboard, dark theme, desktop](./screenshots/v7-dark-desktop.png)
