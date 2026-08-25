@@ -787,12 +787,8 @@ function renderHtml(d, opts = {}) {
        columns from becoming unreadable, so we don't need an outer cap. */
     width: 100%;
   }
-  /* Below md: single-column, sidebar hidden, tab-nav shows */
-  @media (max-width: 960px) {
-    .app-shell { grid-template-columns: 1fr; }
-    .sidebar { display: none; }
-    .main-outer { padding: 16px 12px 96px; }
-  }
+  /* Below md the sidebar becomes a collapsible top-strip disclosure — see
+     the "Sidebar disclosure (mobile)" block further down. */
   /* Above md: sidebar visible, tab-nav redundant so hide it.
      Higher specificity than the base .tab-nav rule so source order doesn't
      matter (that rule is defined later in the file with display: flex). */
@@ -921,6 +917,61 @@ function renderHtml(d, opts = {}) {
   .side-user-status .dot {
     width: 6px; height: 6px; border-radius: 50%;
     box-shadow: 0 0 4px currentColor;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     Sidebar disclosure (mobile).
+     The sidebar wraps its content in <details>. On desktop the summary is
+     hidden and the content is force-shown so the sidebar reads as always
+     open. On narrow viewports the summary becomes a compact brand+hamburger
+     bar the user can tap to expand the nav - triage cards land right below
+     it instead of a full-viewport sidebar column.
+     JS-free (matches the page's default-src 'none' CSP).
+     ────────────────────────────────────────────────────────────────── */
+  .sidebar-collapse { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .sidebar-summary { display: none; }
+  .sidebar-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+  @media (max-width: 960px) {
+    /* Sidebar becomes a top strip on mobile - one compact row until tapped.
+       Rules below beat the base .sidebar block via source order (later wins
+       at equal specificity). */
+    .app-shell { grid-template-columns: 1fr; }
+    .main-outer { padding: 16px 12px 96px; }
+
+    .sidebar {
+      position: static; height: auto;
+      padding: 4px 12px;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+    }
+    /* Hide the redundant in-content brand row on mobile - the summary bar
+       already shows SHIFTS. */
+    .sidebar-content .side-brand { display: none; }
+
+    .sidebar-summary {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 10px 4px;
+      cursor: pointer; list-style: none; user-select: none;
+      color: var(--fg-hi);
+    }
+    /* Kill the native disclosure triangle on both engines. */
+    .sidebar-summary::-webkit-details-marker { display: none; }
+    .sidebar-summary::marker { content: ''; }
+    .sidebar-summary-brand { display: inline-flex; align-items: center; gap: 8px; }
+    .sidebar-summary-hamburger {
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--muted);
+    }
+    /* When the details is open on mobile, rotate the hamburger to signal
+       "tap to close" without needing a separate icon. */
+    .sidebar-collapse[open] .sidebar-summary-hamburger { color: var(--fg-hi); }
+    /* Give the expanded content some breathing room and cap its height so
+       it doesn't push the triage cards off-screen when open. */
+    .sidebar-collapse[open] .sidebar-content {
+      padding: 8px 0 12px;
+      max-height: 70vh; overflow-y: auto;
+    }
   }
 
   /* ─────────────────────────────────────────────────────────────────────
@@ -2621,39 +2672,57 @@ function renderSidebar(repos, opts = {}) {
       <span class="side-count side-count-soon">soon</span>
     </span>`;
 
+  // On mobile the sidebar collapses to a single-row disclosure — a compact
+  // brand + hamburger bar at the top that expands into the full nav when
+  // tapped. On desktop the disclosure is force-shown via CSS so the sidebar
+  // reads as always-open. The <details> element gives us that toggle with
+  // zero JavaScript (matches the page's `default-src 'none'` CSP).
   return `<aside class="sidebar" aria-label="Dashboard navigation">
-    <div class="side-brand">
-      <span class="side-logo">SHIFTS</span>
-      <span class="side-logo-dot"></span>
-    </div>
+    <details class="sidebar-collapse">
+      <summary class="sidebar-summary" aria-label="Toggle navigation">
+        <span class="sidebar-summary-brand">
+          <span class="side-logo">SHIFTS</span>
+          <span class="side-logo-dot"></span>
+        </span>
+        <span class="sidebar-summary-hamburger" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+        </span>
+      </summary>
+      <div class="sidebar-content">
+        <div class="side-brand">
+          <span class="side-logo">SHIFTS</span>
+          <span class="side-logo-dot"></span>
+        </div>
 
-    <div class="side-section">
-      <div class="side-eyebrow">Workspace</div>
-      ${item('#top', iconDash, 'Dashboard', null, ' side-item-active')}
-      ${item('#ready', iconReady, 'Ready', ready)}
-      ${item('#open', iconOpen, 'Open PRs', open)}
-      ${item('#attention', iconAttn, 'Attention', attn)}
-      ${item('#history', iconHist, 'History', null)}
-    </div>
+        <div class="side-section">
+          <div class="side-eyebrow">Workspace</div>
+          ${item('#top', iconDash, 'Dashboard', null, ' side-item-active')}
+          ${item('#ready', iconReady, 'Ready', ready)}
+          ${item('#open', iconOpen, 'Open PRs', open)}
+          ${item('#attention', iconAttn, 'Attention', attn)}
+          ${item('#history', iconHist, 'History', null)}
+        </div>
 
-    <div class="side-section">
-      <div class="side-eyebrow">Coming soon</div>
-      ${disabledItem(iconAgents, 'Agents')}
-      ${disabledItem(iconDeploy, 'Deployments')}
-      ${disabledItem(iconSettings, 'Settings')}
-    </div>
+        <div class="side-section">
+          <div class="side-eyebrow">Coming soon</div>
+          ${disabledItem(iconAgents, 'Agents')}
+          ${disabledItem(iconDeploy, 'Deployments')}
+          ${disabledItem(iconSettings, 'Settings')}
+        </div>
 
-    <div class="side-spacer"></div>
+        <div class="side-spacer"></div>
 
-    ${renderThemeToggle(opts.theme || 'auto', opts.requestUrl || null)}
+        ${renderThemeToggle(opts.theme || 'auto', opts.requestUrl || null)}
 
-    <div class="side-user">
-      <span class="side-avatar">OP</span>
-      <span class="side-user-meta">
-        <span class="side-user-name">operator</span>
-        <span class="side-user-status"><span class="dot dot-success"></span> active</span>
-      </span>
-    </div>
+        <div class="side-user">
+          <span class="side-avatar">OP</span>
+          <span class="side-user-meta">
+            <span class="side-user-name">operator</span>
+            <span class="side-user-status"><span class="dot dot-success"></span> active</span>
+          </span>
+        </div>
+      </div>
+    </details>
   </aside>`;
 }
 
