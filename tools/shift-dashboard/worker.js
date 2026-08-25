@@ -33,6 +33,16 @@
  *           REPO (single) for backward-compat with older single-repo installs.
  */
 
+import { resolveTheme, renderThemeToggle } from './theme.js';
+import {
+  parseCron,
+  humanizeCron,
+  nextFireFromCron,
+  humanizeUntil,
+  renderSchedulePanel,
+} from './cron.js';
+import { syntheticShiftState } from './syntheticShiftState.js';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -238,20 +248,6 @@ async function ghFetchJson(env, url, opts = {}) {
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
-}
-
-/**
- * Effective theme for the request: `?theme=` query param wins, then cookie,
- * then 'auto' (no explicit stamp; OS prefers-color-scheme decides).
- * Never trusts input — only the three known values pass through.
- */
-function resolveTheme(url, cookieHeader) {
-  const q = url.searchParams.get('theme');
-  if (q === 'light' || q === 'dark') return q;
-  if (q === 'auto') return 'auto';
-  const m = cookieHeader.match(/(?:^|;\s*)theme=(light|dark)(?:;|$)/);
-  if (m) return m[1];
-  return 'auto';
 }
 
 function safeEqual(a, b) {
@@ -638,120 +634,6 @@ async function ghFetchWorkflowCron(env, repo, workflowFile) {
   try { text = atob(json.content.replace(/\n/g, '')); } catch { return null; }
   const m = text.match(/-\s*cron:\s*['"]([^'"]+)['"]/);
   return m ? m[1].trim() : null;
-}
-
-/**
- * Parse a 5-field POSIX cron expression into structured fields, or return
- * null if the expression isn't in a form we handle. We deliberately only
- * cover the shapes that appear in shift workflows:
- *   `M H * * *`   → daily at H:M UTC
- *   `M * * * *`   → hourly at :M past
- *   `star/N * * * *` → every N minutes
- * Anything else (day-of-week specifics, ranges, lists) falls through to
- * null and the renderer shows the raw cron string.
- */
-function parseCron(str) {
-  if (typeof str !== 'string') return null;
-  const parts = str.trim().split(/\s+/);
-  if (parts.length !== 5) return null;
-  const [minute, hour, dom, month, dow] = parts;
-  // Daily at H:M
-  if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && dom === '*' && month === '*' && dow === '*') {
-    const m = Number(minute), h = Number(hour);
-    if (m < 0 || m > 59 || h < 0 || h > 23) return null;
-    return { kind: 'daily', hour: h, minute: m, raw: str };
-  }
-  // Hourly at :M
-  if (/^\d+$/.test(minute) && hour === '*' && dom === '*' && month === '*' && dow === '*') {
-    const m = Number(minute);
-    if (m < 0 || m > 59) return null;
-    return { kind: 'hourly', minute: m, raw: str };
-  }
-  // Every N minutes
-  const everyN = minute.match(/^\*\/(\d+)$/);
-  if (everyN && hour === '*' && dom === '*' && month === '*' && dow === '*') {
-    const n = Number(everyN[1]);
-    if (n <= 0 || n > 59) return null;
-    return { kind: 'everyMinutes', interval: n, raw: str };
-  }
-  return null;
-}
-
-/**
- * Humanize a parsed cron into a short English string.
- * `daily`      → "Daily at 23:00 UTC"
- * `hourly`     → "Hourly at :15 past"
- * `everyMin`   → "Every 30 minutes"
- * Anything else → the raw expression back verbatim.
- */
-function humanizeCron(parsed) {
-  if (!parsed) return null;
-  if (parsed.kind === 'daily') {
-    const hh = String(parsed.hour).padStart(2, '0');
-    const mm = String(parsed.minute).padStart(2, '0');
-    return `Daily at ${hh}:${mm} UTC`;
-  }
-  if (parsed.kind === 'hourly') {
-    return `Hourly at :${String(parsed.minute).padStart(2, '0')} past`;
-  }
-  if (parsed.kind === 'everyMinutes') {
-    return `Every ${parsed.interval} minutes`;
-  }
-  return parsed.raw;
-}
-
-/**
- * Compute the next UTC fire time for a parsed cron, given `fromDate`.
- * Only handles the three kinds parseCron produces. Returns null for
- * anything else - caller then just omits the "next fire in" line.
- */
-function nextFireFromCron(parsed, fromDate) {
-  if (!parsed || !fromDate) return null;
-  const now = new Date(fromDate);
-  if (parsed.kind === 'daily') {
-    const next = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-      parsed.hour, parsed.minute, 0, 0,
-    ));
-    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
-    return next;
-  }
-  if (parsed.kind === 'hourly') {
-    const next = new Date(Date.UTC(
-      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-      now.getUTCHours(), parsed.minute, 0, 0,
-    ));
-    if (next.getTime() <= now.getTime()) next.setUTCHours(next.getUTCHours() + 1);
-    return next;
-  }
-  if (parsed.kind === 'everyMinutes') {
-    // Next fire = next multiple of `interval` after the current minute.
-    const next = new Date(now);
-    next.setUTCSeconds(0, 0);
-    const rem = next.getUTCMinutes() % parsed.interval;
-    next.setUTCMinutes(next.getUTCMinutes() + (parsed.interval - rem));
-    if (next.getTime() <= now.getTime()) {
-      next.setUTCMinutes(next.getUTCMinutes() + parsed.interval);
-    }
-    return next;
-  }
-  return null;
-}
-
-/**
- * Short humanized "in Xh Ym" / "in Xm" for a future timestamp relative
- * to `now`. Never negative - flips to "overdue" if in the past.
- */
-function humanizeUntil(future, now) {
-  if (!future || !now) return '?';
-  const ms = new Date(future).getTime() - new Date(now).getTime();
-  if (ms < 0) return 'overdue';
-  const totalMin = Math.round(ms / 60000);
-  if (totalMin < 1) return 'in <1m';
-  if (totalMin < 60) return `in ${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m ? `in ${h}h ${m}m` : `in ${h}h`;
 }
 
 async function ghFetch(env, url) {
@@ -2596,71 +2478,6 @@ function collectAcrossRepos(repos, key) {
  * + last dispatch outcome. Rendered in the right rail above Attention -
  * "when is the next thing?" is the fastest-scan question on the page.
  */
-function renderScheduleRow(shift, humanSchedule, nextIso, lastRun, now) {
-  const shiftDot = shift === 'night' ? 'dot-accent' : 'dot-success';
-  const nextTxt = nextIso ? humanizeUntil(nextIso, now) : '';
-  const lastTxt = lastRun && lastRun.createdAt
-    ? `last ${fmtRel(lastRun.createdAt, now).split(' · ')[0]}${lastRun.conclusion ? ' · ' + escape(lastRun.conclusion) : ''}`
-    : 'no runs yet';
-  return `<div class="sched-row">
-    <span class="sched-tag"><span class="dot ${shiftDot}"></span>${escape(shift)}</span>
-    <div class="sched-body">
-      <div class="sched-line">${escape(humanSchedule)}</div>
-      <div class="sched-meta">
-        ${nextIso ? `<span class="sched-next">next ${escape(nextTxt)}</span>` : ''}
-        <span class="sched-last">${lastTxt}</span>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderSchedulePanel(repos, now) {
-  // Aggregate the first repo's cron (they should all be the same in
-  // practice; if they diverge we show whichever we found first + would
-  // add a per-repo detail in a follow-up).
-  const nightCronStr = repos
-    .map((r) => r && !r.nightCron?.error && typeof r.nightCron === 'string' ? r.nightCron : null)
-    .find((c) => c) || null;
-  const nightParsed = parseCron(nightCronStr);
-  const nightHuman = nightParsed
-    ? humanizeCron(nightParsed)
-    : (nightCronStr ? `cron: ${nightCronStr}` : 'schedule unknown');
-  const nightNext = nightParsed ? nextFireFromCron(nightParsed, now)?.toISOString() : null;
-  const nightLast = collectAcrossRepos(repos, 'nightRuns')
-    .filter((r) => r && r.createdAt)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-  // Day-shift: hardcoded 30min while Mac awake. If the LaunchAgent plist
-  // interval ever changes, update `dayIntervalMin` here (or lift into
-  // an env var). Not fetchable from github - lives on the local Mac.
-  const dayIntervalMin = 30;
-  const dayHuman = `Every ${dayIntervalMin} min while Mac awake`;
-  const dayLast = collectAcrossRepos(repos, 'dayRuns')
-    .filter((r) => r && r.createdAt)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-  const dayLastIso = dayLast?.createdAt || null;
-  const dayNext = dayLastIso
-    ? new Date(new Date(dayLastIso).getTime() + dayIntervalMin * 60_000).toISOString()
-    : null;
-
-  return `<section class="panel panel-schedule">
-    <div class="panel-hd">
-      <h2>◇ Shift Schedule</h2>
-      <span class="panel-status">source: workflow yaml</span>
-    </div>
-    <div class="sched-list">
-      ${renderScheduleRow('night', nightHuman, nightNext, nightLast, now)}
-      ${renderScheduleRow('day', dayHuman, dayNext, dayLast, now)}
-    </div>
-    <div class="sched-foot">
-      All times UTC. Edit night-shift cron in
-      <code>.github/workflows/night-shift-dispatch.yml</code>.
-      Day-shift is a LaunchAgent - edit
-      <code>~/Library/LaunchAgents/com.example.day-shift.plist</code>.
-    </div>
-  </section>`;
-}
-
 function renderAttentionPanel(repos, now) {
   const all = [
     ...collectAcrossRepos(repos, 'dayPrs'),
@@ -2771,43 +2588,6 @@ function renderRail(repos, now) {
  * Anchor targets align with the tab-nav (#ready, #open, #history) plus
  * #attention (new, added on the attention panel in the right rail).
  */
-/**
- * Theme toggle: three-link pill group (light / dark / auto). Server-side
- * toggle - each link carries the current search params (preserves ?key=)
- * and adds/replaces ?theme=. Clicking triggers a page reload with the
- * new theme; a Set-Cookie in the response persists the choice.
- *
- * Server-side is the only CSP-safe option today (default-src 'none' blocks
- * inline JS). Reload cost is acceptable given the dashboard auto-refreshes
- * every 30s anyway.
- *
- * `currentTheme` is the effective theme ('light'|'dark'|'auto') - used to
- * highlight the active choice. `requestUrl` is the incoming URL object
- * (or null when rendering from a mock/test without a real request).
- */
-function renderThemeToggle(currentTheme, requestUrl) {
-  const link = (val, label, symbol) => {
-    // Preserve all other query params (specifically ?key=) so the toggle
-    // click doesn't 404. When requestUrl is missing (test/mock context),
-    // fall back to `?theme=val` alone.
-    let href;
-    if (requestUrl) {
-      const clone = new URL(requestUrl.toString());
-      clone.searchParams.set('theme', val);
-      href = clone.pathname + clone.search;
-    } else {
-      href = `?theme=${val}`;
-    }
-    const active = currentTheme === val ? ' theme-toggle-active' : '';
-    return `<a class="theme-toggle-item${active}" href="${escape(href)}" title="${escape(label)}" aria-label="${escape(label)}${currentTheme === val ? ' (current)' : ''}">${symbol}</a>`;
-  };
-  return `<div class="theme-toggle" role="group" aria-label="Color theme">
-    ${link('light', 'Light theme', 'L')}
-    ${link('dark', 'Dark theme', 'D')}
-    ${link('auto', 'Follow OS theme', 'A')}
-  </div>`;
-}
-
 function renderSidebar(repos, opts = {}) {
   const open = safeSum(repos, 'dayPrs') + safeSum(repos, 'nightPrs');
   const ready = safeSum(repos, 'dayMerged') + safeSum(repos, 'nightMerged');
@@ -3814,140 +3594,6 @@ function renderFlashBanner(flash) {
   </div>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// SYNTHETIC_PRS fixture — makes the OSS repo runnable without a GH token.
-// Returns the same shape as loadShiftState(). Freshness timestamps are
-// computed relative to "now" so screenshots always land in the intended
-// buckets (fresh / yesterday / this week / older).
-// ─────────────────────────────────────────────────────────────────────────
-function syntheticShiftState() {
-  const now = new Date();
-  const iso = (msAgo) => new Date(now.getTime() - msAgo).toISOString();
-  const HOUR = 60 * 60 * 1000;
-  const DAY = 24 * HOUR;
-  const REPO = 'your-org/example-app';
-  const holdingBranch = 'day-shift-staging-2026-08-25';
-
-  const mkPr = (o) => ({
-    number: o.number,
-    title: o.title,
-    url: `https://github.com/${REPO}/pull/${o.number}`,
-    labels: o.labels || [],
-    isDraft: o.isDraft || false,
-    updatedAt: o.updatedAt,
-    createdAt: o.createdAt || o.updatedAt,
-    base: o.base || holdingBranch,
-    body: o.body || `Automated PR from the day shift.\n\nTEST_ROUTE: /${o.slug || 'settings'}\n\nCloses #${o.ticket || o.number}`,
-    brain: null,
-    testRoute: o.testRoute || `/${o.slug || 'settings'}`,
-    ticketId: o.ticket || null,
-    additions: o.additions ?? 42,
-    deletions: o.deletions ?? 8,
-    changed_files: o.changed_files ?? 3,
-    mergeable_state: o.mergeable_state || 'clean',
-  });
-
-  const dayPrs = [
-    mkPr({
-      number: 1284, ticket: 1280, updatedAt: iso(0.4 * HOUR),
-      title: 'fix(settings): keyboard focus ring appears on click, not just tab (#1280)',
-      labels: ['day-shift:reviewed-clean', 'bug'],
-      slug: 'settings', additions: 24, deletions: 6, changed_files: 2,
-    }),
-    mkPr({
-      number: 1283, ticket: 1279, updatedAt: iso(2 * HOUR),
-      title: 'feat(dashboard): freshness grouping for stale-issue triage (#1279)',
-      labels: ['enhancement'],
-      slug: 'dashboard', additions: 187, deletions: 42, changed_files: 5,
-    }),
-    mkPr({
-      number: 1282, ticket: 1278, updatedAt: iso(6 * HOUR),
-      title: 'chore(deps): bump vite from 5.4.2 to 5.4.6 (#1278)',
-      labels: [],
-      slug: 'no-ui', additions: 0, deletions: 0, changed_files: 1,
-      body: 'no code changes / already on Staging.\n\nCloses #1278',
-      testRoute: null,
-    }),
-    mkPr({
-      number: 1281, ticket: 1275, updatedAt: iso(20 * HOUR),
-      title: 'fix(auth): session expiry banner blocks the primary CTA on mobile (#1275)',
-      labels: ['day-shift:needs-human', 'bug', 'mobile'],
-      slug: 'account', additions: 89, deletions: 24, changed_files: 4,
-      mergeable_state: 'dirty',
-    }),
-    mkPr({
-      number: 1276, ticket: 1270, updatedAt: iso(3 * DAY),
-      title: 'refactor(theme): consolidate duplicate token declarations (#1270)',
-      labels: [],
-      slug: 'theme', additions: 512, deletions: 480, changed_files: 12,
-    }),
-    mkPr({
-      number: 1240, ticket: 1235, updatedAt: iso(14 * DAY),
-      title: 'perf(charts): defer chart.js until user scrolls into view (#1235)',
-      labels: [],
-      slug: 'reports', additions: 68, deletions: 14, changed_files: 3,
-    }),
-  ];
-
-  const nightPrs = [
-    mkPr({
-      number: 1285, ticket: 1281, updatedAt: iso(9 * HOUR),
-      title: 'test(dashboard): characterization suite for freshness buckets (#1281)',
-      labels: ['night-shift:reviewed-clean', 'tests'],
-      slug: 'no-ui', additions: 122, deletions: 0, changed_files: 2,
-      base: 'night-shift-staging-2026-08-25',
-      testRoute: null,
-    }),
-    mkPr({
-      number: 1279, ticket: 1273, updatedAt: iso(30 * HOUR),
-      title: 'docs(readme): document SYNTHETIC_PRS local-dev flow (#1273)',
-      labels: ['night-shift:reviewed-clean', 'docs'],
-      slug: 'no-ui', additions: 41, deletions: 3, changed_files: 1,
-      base: 'night-shift-staging-2026-08-25',
-      testRoute: null,
-    }),
-  ];
-
-  const dayMerged = [
-    {
-      ...mkPr({
-        number: 1273, ticket: 1269, updatedAt: iso(26 * HOUR),
-        title: 'fix(sidebar): collapsed rail no longer overlaps main content on 1024px (#1269)',
-        labels: ['day-shift:reviewed-clean'],
-        slug: 'dashboard', additions: 34, deletions: 12, changed_files: 2,
-      }),
-      mergedAt: iso(24 * HOUR),
-    },
-  ];
-  const nightMerged = [];
-
-  let runN = 100;
-  const dispatchRun = (msAgo, ok = true) => ({
-    id: Math.floor(1_000_000 + Math.random() * 9_000_000),
-    status: 'completed',
-    conclusion: ok ? 'success' : 'failure',
-    event: 'schedule',
-    branch: 'main',
-    url: `https://github.com/${REPO}/actions/runs/synthetic`,
-    createdAt: iso(msAgo),
-    runNumber: runN++,
-  });
-
-  return {
-    now: now.toISOString(),
-    repos: [{
-      repo: REPO,
-      dayPrs,
-      nightPrs,
-      nightRuns: [dispatchRun(9 * HOUR), dispatchRun(33 * HOUR), dispatchRun(57 * HOUR), dispatchRun(81 * HOUR, false), dispatchRun(105 * HOUR)],
-      dayRuns:   [dispatchRun(0.4 * HOUR), dispatchRun(0.9 * HOUR), dispatchRun(1.4 * HOUR)],
-      dayMerged,
-      nightMerged,
-      nightCron: '0 23 * * *',
-      permissions: { pull: true, push: true, admin: false },
-    }],
-  };
-}
 
 // Named exports so unit tests can import the pure helpers without spinning
 // up a Cloudflare Worker sandbox. CF ignores extra named exports at runtime;
@@ -3977,15 +3623,10 @@ export {
   renderPrDeltaCell,
   prStatusInfo,
   renderStateStrip,
-  // v5 schedule panel (cron parsing + humanization + rendered rail panel)
-  parseCron,
-  humanizeCron,
-  nextFireFromCron,
-  humanizeUntil,
-  renderSchedulePanel,
-  // v6 theme toggle (server-side, URL-param + cookie persistence)
-  resolveTheme,
-  renderThemeToggle,
+  // Shared utils exported so extracted sub-modules (cron.js, theme.js)
+  // can import them as live bindings.
+  escape,
+  fmtRel,
   // v7 5th-grader triage view
   groupPrsByFreshness,
   isNoOpPr,
@@ -4004,6 +3645,4 @@ export {
   renderTriageStrip,
   renderTriageRepoSection,
   readFlashCookie,
-  // Local-dev fixture (returned in SYNTHETIC_PRS=1 mode)
-  syntheticShiftState,
 };

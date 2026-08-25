@@ -16,7 +16,7 @@ import {
   nextFireFromCron,
   humanizeUntil,
   renderSchedulePanel,
-} from '../worker.js';
+} from '../cron.js';
 
 // ─── parseCron ───────────────────────────────────────────────────────
 

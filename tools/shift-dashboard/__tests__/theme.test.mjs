@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTheme, renderThemeToggle } from '../worker.js';
+import { resolveTheme, renderThemeToggle } from '../theme.js';
 
 // ─── resolveTheme ────────────────────────────────────────────────────
 

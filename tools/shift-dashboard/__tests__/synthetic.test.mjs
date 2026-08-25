@@ -3,7 +3,8 @@
 // is about to break — fix the fixture, not the test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { syntheticShiftState, renderHtml } from '../worker.js';
+import { syntheticShiftState } from '../syntheticShiftState.js';
+import { renderHtml } from '../worker.js';
 
 test('syntheticShiftState: returns loadShiftState-shaped object', () => {
   const s = syntheticShiftState();
