@@ -116,6 +116,8 @@ If either is over 10MB: shorten the reproduction (fewer `waitForTimeout` calls, 
 
 ## Step 6a — Portable mode (default): drag-and-drop into the PR
 
+> **When to prefer this**: one-off PRs, or your first time using the skill. 5 seconds of drag-drop per PR, works on any machine with no cloud config. If you'll run this on many PRs, R2 auto-upload (Step 6b) is faster in aggregate - 5-minute one-time setup via the wizard, then zero-touch forever.
+
 ```bash
 bash ~/.claude/skills/fix-video-evidence/reference/attach-to-pr.sh $PR_NUM
 ```
@@ -134,7 +136,15 @@ Open the PR in a browser, paste the markdown into a comment, then drag each `.we
 
 ## Step 6b — Auto-upload mode (opt-in): R2 → CDN URL → `gh pr edit`
 
-Set the four R2 env vars before running the skill (any S3-compatible R2 bucket the user already owns):
+**First-time R2 setup**: run the guided wizard once and never think about it again.
+
+```bash
+bash ~/.claude/skills/fix-video-evidence/reference/setup-r2.sh
+```
+
+It opens the Cloudflare dashboard, walks you through bucket + API token creation, tests an actual upload, and prints the four `R2_*` `export` lines to paste into your shell profile. Cloudflare's R2 free tier (10GB storage + 1M ops/month) covers a lot of PR videos - no card required for sign-up.
+
+Or, if you prefer manual setup, set the four R2 env vars yourself (any S3-compatible R2 bucket the user already owns):
 
 ```bash
 export PR_VIDEO_UPLOAD=r2
