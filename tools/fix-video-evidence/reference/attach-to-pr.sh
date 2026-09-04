@@ -83,6 +83,20 @@ EOF
 fi
 
 # Portable mode.
+pr_url=$(gh pr view "$pr" --json url -q .url 2>/dev/null || echo "https://github.com/<owner>/<repo>/pull/${pr}")
+
+human_size () {
+  local bytes
+  bytes=$(stat -f%z "$1" 2>/dev/null || stat -c%s "$1")
+  if [ "$bytes" -ge 1048576 ]; then
+    awk -v b="$bytes" 'BEGIN { printf "%.1fMB", b/1048576 }'
+  else
+    awk -v b="$bytes" 'BEGIN { printf "%dKB", b/1024 }'
+  fi
+}
+before_size=$(human_size "$before")
+after_size=$(human_size "$after")
+
 cat <<EOF
 
 ### Fix evidence
@@ -91,14 +105,22 @@ cat <<EOF
 |---|---|
 | _drag \`${before}\` here_ | _drag \`${after}\` here_ |
 
-<sub>Recorded with Playwright \`recordVideo\` via the \`fix-video-evidence\` skill. Portable mode: GitHub renders \`.webm\` inline once you drag each file onto its cell.</sub>
+<sub>Recorded with Playwright \`recordVideo\` via the \`fix-video-evidence\` skill.</sub>
 
---
-Steps:
-  1. gh pr view ${pr} --web    # opens the PR in your browser
-  2. Click "Comment" (or edit the description).
-  3. Paste the markdown block above.
-  4. Drag ${before} onto the left cell.
-  5. Drag ${after}  onto the right cell.
-  6. Submit.
+──────────────────────────────────────────────────────
+📎  5 seconds of drag-drop:
+
+  1. Open the PR:  ${pr_url}
+  2. Click Comment (bottom of the thread).
+  3. Paste the markdown table above.
+  4. Drag from Finder onto each placeholder:
+       • ${before}  (${before_size})
+       • ${after}   (${after_size})
+  5. Submit. GitHub inlines the .webm - reviewer plays it in-thread.
+
+💡  Doing this on more than a few PRs?  One-time 5-min setup makes it
+    zero-touch:
+
+       bash ${here}/setup-r2.sh
+──────────────────────────────────────────────────────
 EOF
