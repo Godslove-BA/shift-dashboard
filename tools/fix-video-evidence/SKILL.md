@@ -13,6 +13,8 @@ This skill wraps the record + attach cycle. **The fix itself is out of scope** â
 
 > **Project rule precedence:** if the repo's `CLAUDE.md` / `AGENTS.md` sets a stricter QA gate (e.g. a mandated machine-human browser QA checklist), honor it. This skill produces evidence for that gate, it doesn't replace it.
 
+> **Path convention:** recipes below use `~/.claude/skills/fix-video-evidence/` for the skill's location. If this skill is installed per-project (i.e. this file lives at `<repo>/.claude/skills/fix-video-evidence/SKILL.md`), substitute `<repo>/.claude/skills/fix-video-evidence/` for `~/.claude/skills/fix-video-evidence/` throughout.
+
 ## When to Use
 
 - Any bug-fix PR the reviewer will want to *see*: interactive UI, a broken flow, a regression, a visual bug that a still screenshot misses.
